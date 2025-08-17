@@ -31,7 +31,7 @@ import useFlash from '@/plugins/useFlash';
 
 const Editor = lazy(() => import('@/components/elements/editor/Editor'));
 
-export default () => {
+const FileEditContainer = () => {
     const [error, setError] = useState('');
     const { action, '*': rawFilename } = useParams<{ action: 'edit' | 'new'; '*': string }>();
     const [_, setLoading] = useState(action === 'edit');
@@ -205,7 +205,7 @@ export default () => {
                                 strokeLinejoin='round'
                             />
                         </svg>
-                        {language?.name ?? 'Language'}
+                        <span className='sm:block hidden'>{language?.name ?? 'Language'}</span>
                         <svg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 13 13' fill='none'>
                             <path
                                 fillRule='evenodd'
@@ -243,7 +243,10 @@ export default () => {
                                 className='h-[46px] pl-8 pr-6 py-3 border-[1px] border-[#ffffff12] rounded-l-full text-sm font-bold shadow-md cursor-pointer'
                                 onClick={() => save()}
                             >
-                                Save <span className='ml-2 font-mono text-xs font-bold uppercase'>CTRL + S</span>
+                                Save{' '}
+                                <span className='ml-2 font-mono text-xs font-bold uppercase lg:inline-block hidden'>
+                                    CTRL + S
+                                </span>
                             </button>
                             <DropdownMenu>
                                 <DropdownMenuTrigger
@@ -297,3 +300,5 @@ export default () => {
         </PageContentBlock>
     );
 };
+
+export default FileEditContainer;

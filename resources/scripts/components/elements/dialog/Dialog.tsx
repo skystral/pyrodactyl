@@ -1,5 +1,5 @@
 import { Dialog as HDialog } from '@headlessui/react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'motion/react';
 import { useRef, useState } from 'react';
 
 import HugeIconsX from '../hugeicons/X';
@@ -31,7 +31,7 @@ const variants = {
     },
 };
 
-export default ({
+const Dialog = ({
     open,
     title,
     description,
@@ -130,3 +130,5 @@ export default ({
         </AnimatePresence>
     );
 };
+
+export default Dialog;

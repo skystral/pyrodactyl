@@ -12,7 +12,7 @@ interface CaptchaProps {
     onExpire: () => void;
 }
 
-export default ({ driver, sitekey, endpoint, onVerify, onError, onExpire }: CaptchaProps) => {
+const Captcha = ({ driver, sitekey, endpoint, onVerify, onError, onExpire }: CaptchaProps) => {
     const [loaded, setLoaded] = useState(false);
 
     useEffect(() => {
@@ -32,12 +32,23 @@ export default ({ driver, sitekey, endpoint, onVerify, onError, onExpire }: Capt
 
     if (driver === 'mcaptcha') {
         // TODO: Maybe make this work one day
+        // @mcaptcha/vanilla-glue
         return <Turnstile siteKey={sitekey || ''} onSuccess={onVerify} onError={onError} onExpire={onExpire} />;
     }
+
     if (driver === 'recaptcha') {
         // TODO: Maybe make this work one day
+        // react-google-recaptcha-v3
+        return <Turnstile siteKey={sitekey || ''} onSuccess={onVerify} onError={onError} onExpire={onExpire} />;
+    }
+
+    if (driver === 'friendly') {
+        // TODO: Maybe make this work one day
+        // @friendlycaptcha/sdk
         return <Turnstile siteKey={sitekey || ''} onSuccess={onVerify} onError={onError} onExpire={onExpire} />;
     }
 
     return null;
 };
+
+export default Captcha;

@@ -1,3 +1,5 @@
+# TODO: Refactor Docker with stricter permissions & modernized tooling
+
 # Stage 0:
 # Build the frontend (only if not in dev mode)
 FROM --platform=$TARGETOS/$TARGETARCH node:lts-alpine AS frontend
@@ -71,15 +73,14 @@ RUN if [ "$DEV" = "true" ]; then \
   exit 0
 
 # Env, directories, permissions
-RUN cp .env.example .env || true \
-  && mkdir -p bootstrap/cache storage/logs storage/framework/sessions storage/framework/views storage/framework/cache \
-  && chmod -R 777 bootstrap storage \
-  && rm -rf bootstrap/cache/*.php \
-  && chown -R nginx:nginx storage bootstrap
+RUN mkdir -p bootstrap/cache storage/logs storage/framework/sessions storage/framework/views storage/framework/cache; \
+  rm -rf bootstrap/cache/*.php; \
+  chown -R nginx:nginx .; \
+  chmod -R 777 bootstrap storage; \
+  cp .env.example .env || true; 
 
-
-  # Cron jobs & NGINX tweaks
-  RUN rm /usr/local/etc/php-fpm.conf \
+# Cron jobs & NGINX tweaks
+RUN rm /usr/local/etc/php-fpm.conf \
   && { \
   echo "* * * * * /usr/local/bin/php /app/artisan schedule:run >> /dev/null 2>&1"; \
   echo "0 23 * * * certbot renew --nginx --quiet"; \
