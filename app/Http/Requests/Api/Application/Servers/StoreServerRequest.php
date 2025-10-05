@@ -33,6 +33,7 @@ class StoreServerRequest extends ApplicationApiRequest
             'environment' => 'present|array',
             'skip_scripts' => 'sometimes|boolean',
             'oom_disabled' => 'sometimes|boolean',
+            'exclude_from_resource_calculation' => 'sometimes|boolean',
 
             // Resource limitations
             'limits' => 'required|array',
@@ -49,6 +50,7 @@ class StoreServerRequest extends ApplicationApiRequest
             'feature_limits.databases' => $rules['database_limit'],
             'feature_limits.allocations' => $rules['allocation_limit'],
             'feature_limits.backups' => $rules['backup_limit'],
+            'feature_limits.backup_storage_mb' => $rules['backup_storage_limit'],
 
             // Placeholders for rules added in withValidator() function.
             'allocation.default' => '',
@@ -96,7 +98,9 @@ class StoreServerRequest extends ApplicationApiRequest
             'database_limit' => array_get($data, 'feature_limits.databases'),
             'allocation_limit' => array_get($data, 'feature_limits.allocations'),
             'backup_limit' => array_get($data, 'feature_limits.backups'),
+            'backup_storage_limit' => array_get($data, 'feature_limits.backup_storage_mb'),
             'oom_disabled' => array_get($data, 'oom_disabled'),
+            'exclude_from_resource_calculation' => array_get($data, 'exclude_from_resource_calculation', false),
         ];
     }
 

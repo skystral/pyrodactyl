@@ -1,17 +1,17 @@
 import ModalContext from '@/context/ModalContext';
 import { TZDate } from '@date-fns/tz';
-import { faInfoCircle, faUpRightFromSquare } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { format } from 'date-fns';
 import { useStoreState } from 'easy-peasy';
 import { Form, Formik, FormikHelpers } from 'formik';
 import { useContext, useEffect, useMemo } from 'react';
 
 import FlashMessageRender from '@/components/FlashMessageRender';
+import ActionButton from '@/components/elements/ActionButton';
 import Field from '@/components/elements/Field';
 import FormikSwitchV2 from '@/components/elements/FormikSwitchV2';
 import ItemContainer from '@/components/elements/ItemContainer';
-import { Button } from '@/components/elements/button/index';
+import HugeIconsAlert from '@/components/elements/hugeicons/Alert';
+import HugeIconsLink from '@/components/elements/hugeicons/Link';
 
 import asModal from '@/hoc/asModal';
 
@@ -179,15 +179,23 @@ const EditScheduleModal = ({ schedule }: Props) => {
                     <div className={`grid grid-cols-2 sm:grid-cols-5 gap-4 mt-6`}>
                         <Field name={'minute'} label={'Minute'} />
                         <Field name={'hour'} label={'Hour'} />
+                        <Field name={'dayOfWeek'} label={'Day of week'} />
                         <Field name={'dayOfMonth'} label={'Day of month'} />
                         <Field name={'month'} label={'Month'} />
-                        <Field name={'dayOfWeek'} label={'Day of week'} />
                     </div>
+
+                    <p className={`text-zinc-400 text-xs mt-2`}>
+                        The schedule system uses Cronjob syntax when defining when tasks should begin running. Use the
+                        fields above to specify when these tasks should begin running.
+                    </p>
 
                     {timezoneInfo.isDifferent && (
                         <div className={'bg-blue-900/20 border border-blue-400/30 rounded-lg p-4 my-2'}>
                             <div className={'flex items-start gap-3'}>
-                                <FontAwesomeIcon icon={faInfoCircle} className={'text-blue-400 mt-0.5 flex-shrink-0'} />
+                                <HugeIconsAlert
+                                    fill='currentColor'
+                                    className={'text-blue-400 mt-0.5 flex-shrink-0 h-5 w-5'}
+                                />
                                 <div className={'text-sm'}>
                                     <p className={'text-blue-100 font-medium mb-1'}>Timezone Information</p>
                                     <p className={'text-blue-200/80 text-xs mb-2'}>
@@ -226,11 +234,6 @@ const EditScheduleModal = ({ schedule }: Props) => {
                         </div>
                     )}
 
-                    <p className={`text-zinc-400 text-xs mt-2`}>
-                        The schedule system supports the use of Cronjob syntax when defining when tasks should begin
-                        running. Use the fields above to specify when these tasks should begin running.
-                    </p>
-
                     <div className='gap-3 my-6 flex flex-col'>
                         <a href='https://crontab.guru/' target='_blank' rel='noreferrer'>
                             <ItemContainer
@@ -240,7 +243,7 @@ const EditScheduleModal = ({ schedule }: Props) => {
                                 // onChange={() => setShowCheetsheet((s) => !s)}
                                 labelClasses='cursor-pointer'
                             >
-                                <FontAwesomeIcon icon={faUpRightFromSquare} className={`px-5`} size='lg' />
+                                <HugeIconsLink fill='currentColor' className={`px-5 h-5 w-5`} />
                             </ItemContainer>
                         </a>
                         {/* This table would be pretty awkward to make look nice
@@ -262,9 +265,14 @@ const EditScheduleModal = ({ schedule }: Props) => {
                         />
                     </div>
                     <div className={`mb-6 text-right`}>
-                        <Button className={'w-full sm:w-auto'} type={'submit'} disabled={isSubmitting}>
+                        <ActionButton
+                            variant='primary'
+                            className={'w-full sm:w-auto'}
+                            type={'submit'}
+                            disabled={isSubmitting}
+                        >
                             {schedule ? 'Save changes' : 'Create schedule'}
-                        </Button>
+                        </ActionButton>
                     </div>
                 </Form>
             )}

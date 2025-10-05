@@ -11,7 +11,10 @@
     "features": [
         "eula",
         "java_version",
-        "pid_limit"
+        "pid_limit",
+        "plugin/bungeecord",
+        "mclogs",
+        "subdomain_minecraft"
     ],
     "docker_images": {
         "Java GraalVM 23 JDK": "ghcr.io\/rikodev\/pterodactyl-graalvm:23-JDK",

@@ -2,8 +2,7 @@
 
 import { useStoreState } from 'easy-peasy';
 import { on } from 'events';
-import type React from 'react';
-import { Fragment, Suspense, useEffect, useRef, useState } from 'react';
+import React, { Fragment, Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 
 import routes from '@/routers/routes';
@@ -19,6 +18,8 @@ import {
 import ErrorBoundary from '@/components/elements/ErrorBoundary';
 import MainSidebar from '@/components/elements/MainSidebar';
 import MainWrapper from '@/components/elements/MainWrapper';
+import { ServerMobileMenu } from '@/components/elements/MobileFullScreenMenu';
+import MobileTopBar from '@/components/elements/MobileTopBar';
 import PermissionRoute from '@/components/elements/PermissionRoute';
 import Logo from '@/components/elements/PyroLogo';
 import { NotFound, ServerError } from '@/components/elements/ScreenBlock';
@@ -34,7 +35,6 @@ import HugeIconsFolder from '@/components/elements/hugeicons/Folder';
 import HugeIconsHome from '@/components/elements/hugeicons/Home';
 import HugeIconsPencil from '@/components/elements/hugeicons/Pencil';
 import HugeIconsPeople from '@/components/elements/hugeicons/People';
-import HugeIconsHamburger from '@/components/elements/hugeicons/hamburger';
 import ConflictStateRenderer from '@/components/server/ConflictStateRenderer';
 import InstallListener from '@/components/server/InstallListener';
 import TransferListener from '@/components/server/TransferListener';
@@ -42,34 +42,106 @@ import WebsocketHandler from '@/components/server/WebsocketHandler';
 
 import { httpErrorToHuman } from '@/api/http';
 import http from '@/api/http';
-import getNests from '@/api/nests/getNests';
+import { SubdomainInfo, getSubdomainInfo } from '@/api/server/network/subdomain';
 
 import { ServerContext } from '@/state/server';
 
 const blank_egg_prefix = '@';
 
-interface Egg {
-    object: string;
-    attributes: {
-        uuid: string;
-        name: string;
-        description: string;
-    };
-}
+// Sidebar item components that check both permissions and feature limits
+const DatabasesSidebarItem = React.forwardRef<HTMLAnchorElement, { id: string; onClick: () => void }>(
+    ({ id, onClick }, ref) => {
+        const databaseLimit = ServerContext.useStoreState((state) => state.server.data?.featureLimits.databases);
 
-interface Nest {
-    object: string;
-    attributes: {
-        id: number;
-        name: string;
-        relationships: {
-            eggs: {
-                object: string;
-                data: Egg[];
+        // Hide if databases are disabled (limit is 0)
+        if (databaseLimit === 0) return null;
+
+        return (
+            <Can action={'database.*'} matchAny>
+                <NavLink
+                    className='flex flex-row items-center transition-colors duration-200 hover:bg-white/10 rounded-md'
+                    ref={ref}
+                    to={`/server/${id}/databases`}
+                    onClick={onClick}
+                    end
+                >
+                    <HugeIconsDatabase fill='currentColor' />
+                    <p>Databases</p>
+                </NavLink>
+            </Can>
+        );
+    },
+);
+DatabasesSidebarItem.displayName = 'DatabasesSidebarItem';
+
+const BackupsSidebarItem = React.forwardRef<HTMLAnchorElement, { id: string; onClick: () => void }>(
+    ({ id, onClick }, ref) => {
+        const backupLimit = ServerContext.useStoreState((state) => state.server.data?.featureLimits.backups);
+
+        // Hide if backups are disabled (limit is 0)
+        if (backupLimit === 0) return null;
+
+        return (
+            <Can action={'backup.*'} matchAny>
+                <NavLink
+                    className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
+                    ref={ref}
+                    to={`/server/${id}/backups`}
+                    onClick={onClick}
+                    end
+                >
+                    <HugeIconsCloudUp fill='currentColor' />
+                    <p>Backups</p>
+                </NavLink>
+            </Can>
+        );
+    },
+);
+BackupsSidebarItem.displayName = 'BackupsSidebarItem';
+
+const NetworkingSidebarItem = React.forwardRef<HTMLAnchorElement, { id: string; onClick: () => void }>(
+    ({ id, onClick }, ref) => {
+        const [subdomainSupported, setSubdomainSupported] = useState(false);
+        const allocationLimit = ServerContext.useStoreState(
+            (state) => state.server.data?.featureLimits.allocations ?? 0,
+        );
+        const uuid = ServerContext.useStoreState((state) => state.server.data?.uuid);
+
+        useEffect(() => {
+            const checkSubdomainSupport = async () => {
+                try {
+                    if (uuid) {
+                        const data = await getSubdomainInfo(uuid);
+                        setSubdomainSupported(data.supported);
+                    }
+                } catch (error) {
+                    setSubdomainSupported(false);
+                }
             };
-        };
-    };
-}
+
+            checkSubdomainSupport();
+        }, [uuid]);
+
+        // Show if either allocations are available OR subdomains are supported
+        if (allocationLimit === 0 && !subdomainSupported) return null;
+
+        return (
+            <Can action={'allocation.*'} matchAny>
+                <NavLink
+                    className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
+                    ref={ref}
+                    to={`/server/${id}/network`}
+                    onClick={onClick}
+                    end
+                >
+                    <HugeIconsConnections fill='currentColor' />
+                    <p>Networking</p>
+                </NavLink>
+            </Can>
+        );
+    },
+);
+NetworkingSidebarItem.displayName = 'NetworkingSidebarItem';
 
 /**
  * Creates a swipe event from an X and Y location at start and current co-ords.
@@ -84,6 +156,7 @@ const ServerRouter = () => {
 
     const rootAdmin = useStoreState((state) => state.user.data!.rootAdmin);
     const [error, setError] = useState('');
+    const [subdomainSupported, setSubdomainSupported] = useState(false);
 
     const id = ServerContext.useStoreState((state) => state.server.data?.id);
     const uuid = ServerContext.useStoreState((state) => state.server.data?.uuid);
@@ -92,141 +165,20 @@ const ServerRouter = () => {
     const getServer = ServerContext.useStoreActions((actions) => actions.server.getServer);
     const clearServerState = ServerContext.useStoreActions((actions) => actions.clearServerState);
     const egg_id = ServerContext.useStoreState((state) => state.server.data?.egg);
-    const [nests, setNests] = useState<Nest[]>();
+    const databaseLimit = ServerContext.useStoreState((state) => state.server.data?.featureLimits.databases);
+    const backupLimit = ServerContext.useStoreState((state) => state.server.data?.featureLimits.backups);
+    const allocationLimit = ServerContext.useStoreState((state) => state.server.data?.featureLimits.allocations);
 
-    // ************************** BEGIN SIDEBAR GESTURE ************************** //
+    // Mobile menu state
+    const [isMobileMenuVisible, setMobileMenuVisible] = useState(false);
 
-    const [isSidebarVisible, setSidebarVisible] = useState(false);
-    const [isSidebarBetween, setSidebarBetween] = useState(false);
-    const [doneOnLoad, setDoneOnLoad] = useState(false);
-
-    const [sidebarPosition, setSidebarPosition] = useState(-1000);
-    const sidebarRef = useRef<HTMLDivElement>(null);
-    const [touchStartX, setTouchStartX] = useState<number | null>(null);
-
-    const showSideBar = (shown: boolean) => {
-        setSidebarVisible(shown);
-
-        // @ts-expect-error - Legacy type suppression
-        if (!shown) setSidebarPosition(-500);
-        else setSidebarPosition(0);
+    const toggleMobileMenu = () => {
+        setMobileMenuVisible(!isMobileMenuVisible);
     };
 
-    const checkIfMinimal = () => {
-        // @ts-expect-error - Legacy type suppression
-        if (!(window.getComputedStyle(sidebarRef.current, null).display === 'block')) {
-            showSideBar(true);
-            return true;
-        }
-
-        // showSideBar(false);
-        return false;
+    const closeMobileMenu = () => {
+        setMobileMenuVisible(false);
     };
-
-    const toggleSidebar = () => {
-        if (checkIfMinimal()) return;
-        showSideBar(!isSidebarVisible);
-    };
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (isSidebarVisible && sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
-                if (checkIfMinimal()) return;
-                showSideBar(false);
-            }
-        };
-
-        // to do, develop a bit more. This is currently a hack and probably not robust.
-        const windowResize = () => {
-            if (window.innerWidth > 1023) {
-                showSideBar(true);
-                return true;
-            }
-
-            showSideBar(false);
-            return false;
-        };
-
-        if (!doneOnLoad) {
-            windowResize();
-            setDoneOnLoad(true);
-        }
-
-        window.addEventListener('load', windowResize);
-        window.addEventListener('resize', windowResize);
-
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-            window.removeEventListener('resize', windowResize);
-            window.removeEventListener('load', windowResize);
-        };
-    }, [isSidebarVisible]);
-
-    // Handle touch events for swipe to close
-    const handleTouchStart = (e: React.TouchEvent) => {
-        if (checkIfMinimal()) return;
-        // @ts-expect-error - Legacy type suppression it is not "possibly undefined." Pretty much guarunteed to work.
-
-        if (isSidebarVisible) setTouchStartX(e.touches[0].clientX - sidebarRef.current?.clientWidth);
-        // @ts-expect-error - Legacy type suppression
-        else setTouchStartX(e.touches[0].clientX);
-    };
-
-    const handleTouchMove = (e: React.TouchEvent) => {
-        if (checkIfMinimal()) return;
-
-        // @ts-expect-error - Legacy type suppression go to sleep TSC
-        const sidebarWidth = sidebarRef.current.clientWidth;
-        // @ts-expect-error - Legacy type suppression
-        if (e.touches[0].clientX - touchStartX < 30) {
-            setSidebarPosition(-sidebarWidth);
-            return;
-        }
-
-        // @ts-expect-error - Legacy type suppression
-        const clampedValue = Math.max(Math.min(e.touches[0].clientX - touchStartX, sidebarWidth), 0) - sidebarWidth;
-
-        setSidebarBetween(false);
-
-        console.group('updateDragLocation');
-        console.info(`start ${clampedValue}`);
-        console.groupEnd();
-
-        setSidebarPosition(clampedValue);
-    };
-
-    const handleTouchEnd = () => {
-        if (checkIfMinimal()) return;
-
-        setTouchStartX(null);
-        setSidebarBetween(true);
-
-        // @ts-expect-error - Legacy type suppression
-        // @ts-expect-error - Legacy type suppression
-        if ((sidebarPosition - sidebarRef.current?.clientWidth) / sidebarRef.current?.clientWidth > -1.35) {
-            showSideBar(true);
-        } else {
-            showSideBar(false);
-        }
-    };
-
-    // *************************** END SIDEBAR GESTURE *************************** //
-
-    const egg_name =
-        nests &&
-        nests
-            .find((nest) => nest.attributes.relationships.eggs.data.find((egg) => egg.attributes.uuid === egg_id))
-            ?.attributes.relationships.eggs.data.find((egg) => egg.attributes.uuid === egg_id)?.attributes.name;
-
-    useEffect(() => {
-        const fetchData = async () => {
-            const data = await getNests();
-            setNests(data);
-        };
-
-        fetchData();
-    }, []);
 
     const onTriggerLogout = () => {
         http.post('/auth/logout').finally(() => {
@@ -262,6 +214,23 @@ const ServerRouter = () => {
             clearServerState();
         };
     }, [params.id]);
+
+    useEffect(() => {
+        const checkSubdomainSupport = async () => {
+            try {
+                if (uuid) {
+                    const data = await getSubdomainInfo(uuid);
+                    setSubdomainSupported(data.supported);
+                }
+            } catch (error) {
+                setSubdomainSupported(false);
+            }
+        };
+
+        if (uuid) {
+            checkSubdomainSupport();
+        }
+    }, [uuid]);
 
     // Define refs for navigation buttons.
     const NavigationHome = useRef(null);
@@ -348,34 +317,28 @@ const ServerRouter = () => {
                 ) : null
             ) : (
                 <>
-                    {isSidebarVisible && (
-                        <div
-                            className='lg:hidden fixed inset-0 bg-black bg-opacity-50 z-9998 transition-opacity duration-300'
-                            onClick={() => showSideBar(false)}
-                            onTouchStart={handleTouchStart}
-                            onTouchMove={handleTouchMove}
-                            onTouchEnd={handleTouchEnd}
-                        />
-                    )}
+                    {/* Mobile Top Bar */}
+                    <MobileTopBar
+                        onMenuToggle={toggleMobileMenu}
+                        onTriggerLogout={onTriggerLogout}
+                        onSelectAdminPanel={onSelectManageServer}
+                        rootAdmin={rootAdmin}
+                    />
 
-                    <button
-                        id='sidebarToggle'
-                        className='lg:hidden fixed flex items-center justify-center top-4 left-4 z-50 bg-[#1a1a1a] p-3 rounded-md text-white shadow-md cursor-pointer'
-                        onClick={toggleSidebar}
-                        aria-label='Toggle sidebar'
-                    >
-                        <HugeIconsHamburger fill='currentColor' />
-                    </button>
+                    {/* Mobile Full Screen Menu */}
+                    <ServerMobileMenu
+                        isVisible={isMobileMenuVisible}
+                        onClose={closeMobileMenu}
+                        serverId={id}
+                        databaseLimit={databaseLimit}
+                        backupLimit={backupLimit}
+                        allocationLimit={allocationLimit}
+                        subdomainSupported={subdomainSupported}
+                    />
 
-                    <div className='flex flex-row w-full'>
-                        <MainSidebar
-                            ref={sidebarRef}
-                            className={`fixed inset-y-0 left-0 z-9999 w-[300px] bg-[#1a1a1a] ${isSidebarBetween ? 'transition-transform duration-300 ease-in-out' : ''} absolute backdrop-blur-xs lg:translate-x-0 lg:relative lg:flex lg:shrink-0`}
-                            style={{
-                                // this is needed so we can set the positioning. If you can do it in tailwind, please do. I'm no expert - why_context
-                                transform: `translate(${sidebarPosition}px)`,
-                            }}
-                        >
+                    <div className='flex flex-row w-full lg:pt-0 pt-16'>
+                        {/* Desktop Sidebar */}
+                        <MainSidebar className='hidden lg:flex lg:relative lg:shrink-0 w-[300px] bg-[#1a1a1a]'>
                             <div
                                 className='absolute bg-brand w-[3px] h-10 left-0 rounded-full pointer-events-none'
                                 style={{
@@ -395,8 +358,8 @@ const ServerRouter = () => {
                                 }}
                             />
                             <div className='flex flex-row items-center justify-between h-8'>
-                                <NavLink to={'/'} className='flex shrink-0 h-full w-fit'>
-                                    <Logo />
+                                <NavLink to={'/'} className='flex shrink-0 h-8 w-fit'>
+                                    <Logo uniqueId='server-desktop-sidebar' />
                                 </NavLink>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
@@ -434,144 +397,105 @@ const ServerRouter = () => {
                                     className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
                                     ref={NavigationHome}
                                     to={`/server/${id}`}
-                                    onClick={toggleSidebar}
                                     end
                                 >
                                     <HugeIconsHome fill='currentColor' />
                                     <p>Home</p>
                                 </NavLink>
-                                {egg_name && !egg_name?.includes(blank_egg_prefix) && (
-                                    <>
-                                        <Can action={'file.*'} matchAny>
-                                            <NavLink
-                                                className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
-                                                ref={NavigationFiles}
-                                                to={`/server/${id}/files`}
-                                                onClick={toggleSidebar}
-                                            >
-                                                <HugeIconsFolder fill='currentColor' />
-                                                <p>Files</p>
-                                            </NavLink>
-                                        </Can>
-                                        <Can action={'database.*'} matchAny>
-                                            <NavLink
-                                                className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
-                                                ref={NavigationDatabases}
-                                                to={`/server/${id}/databases`}
-                                                onClick={toggleSidebar}
-                                                end
-                                            >
-                                                <HugeIconsDatabase fill='currentColor' />
-                                                <p>Databases</p>
-                                            </NavLink>
-                                        </Can>
-                                        <Can action={'backup.*'} matchAny>
-                                            <NavLink
-                                                className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
-                                                ref={NavigationBackups}
-                                                to={`/server/${id}/backups`}
-                                                onClick={toggleSidebar}
-                                                end
-                                            >
-                                                <HugeIconsCloudUp fill='currentColor' />
-                                                <p>Backups</p>
-                                            </NavLink>
-                                        </Can>
-                                        <Can action={'allocation.*'} matchAny>
-                                            <NavLink
-                                                className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
-                                                ref={NavigationNetworking}
-                                                to={`/server/${id}/network`}
-                                                onClick={toggleSidebar}
-                                                end
-                                            >
-                                                <HugeIconsConnections fill='currentColor' />
-                                                <p>Networking</p>
-                                            </NavLink>
-                                        </Can>
-                                        <Can action={'user.*'} matchAny>
-                                            <NavLink
-                                                className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
-                                                ref={NavigationUsers}
-                                                to={`/server/${id}/users`}
-                                                onClick={toggleSidebar}
-                                                end
-                                            >
-                                                <HugeIconsPeople fill='currentColor' />
-                                                <p>Users</p>
-                                            </NavLink>
-                                        </Can>
-                                        <Can
-                                            action={['startup.read', 'startup.update', 'startup.docker-image']}
-                                            matchAny
+                                <>
+                                    <Can action={'file.*'} matchAny>
+                                        <NavLink
+                                            className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
+                                            ref={NavigationFiles}
+                                            to={`/server/${id}/files`}
                                         >
-                                            <NavLink
-                                                className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
-                                                ref={NavigationStartup}
-                                                to={`/server/${id}/startup`}
-                                                onClick={toggleSidebar}
-                                                end
-                                            >
-                                                <HugeIconsConsole fill='currentColor' />
-                                                <p>Startup</p>
-                                            </NavLink>
-                                        </Can>
-                                        <Can action={'schedule.*'} matchAny>
-                                            <NavLink
-                                                className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
-                                                ref={NavigationSchedules}
-                                                to={`/server/${id}/schedules`}
-                                                onClick={toggleSidebar}
-                                            >
-                                                <HugeIconsClock fill='currentColor' />
-                                                <p>Schedules</p>
-                                            </NavLink>
-                                        </Can>
-                                        <Can action={['settings.*', 'file.sftp']} matchAny>
-                                            <NavLink
-                                                className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
-                                                ref={NavigationSettings}
-                                                to={`/server/${id}/settings`}
-                                                onClick={toggleSidebar}
-                                                end
-                                            >
-                                                <HugeIconsDashboardSettings fill='currentColor' />
-                                                <p>Settings</p>
-                                            </NavLink>
-                                        </Can>
-                                        <Can action={['activity.*', 'activity.read']} matchAny>
-                                            <NavLink
-                                                className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
-                                                ref={NavigationActivity}
-                                                to={`/server/${id}/activity`}
-                                                onClick={toggleSidebar}
-                                                end
-                                            >
-                                                <HugeIconsPencil fill='currentColor' />
-                                                <p>Activity</p>
-                                            </NavLink>
-                                        </Can>
-                                        {/* TODO: finish modrinth support *\}
+                                            <HugeIconsFolder fill='currentColor' />
+                                            <p>Files</p>
+                                        </NavLink>
+                                    </Can>
+                                    <DatabasesSidebarItem id={id} ref={NavigationDatabases} onClick={() => {}} />
+                                    <BackupsSidebarItem id={id} ref={NavigationBackups} onClick={() => {}} />
+                                    <NetworkingSidebarItem id={id} ref={NavigationNetworking} onClick={() => {}} />
+                                    <Can action={'user.*'} matchAny>
+                                        <NavLink
+                                            className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
+                                            ref={NavigationUsers}
+                                            to={`/server/${id}/users`}
+                                            end
+                                        >
+                                            <HugeIconsPeople fill='currentColor' />
+                                            <p>Users</p>
+                                        </NavLink>
+                                    </Can>
+                                    <Can
+                                        action={[
+                                            'startup.read',
+                                            'startup.update',
+                                            'startup.command',
+                                            'startup.docker-image',
+                                        ]}
+                                        matchAny
+                                    >
+                                        <NavLink
+                                            className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
+                                            ref={NavigationStartup}
+                                            to={`/server/${id}/startup`}
+                                            end
+                                        >
+                                            <HugeIconsConsole fill='currentColor' />
+                                            <p>Startup</p>
+                                        </NavLink>
+                                    </Can>
+                                    <Can action={'schedule.*'} matchAny>
+                                        <NavLink
+                                            className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
+                                            ref={NavigationSchedules}
+                                            to={`/server/${id}/schedules`}
+                                        >
+                                            <HugeIconsClock fill='currentColor' />
+                                            <p>Schedules</p>
+                                        </NavLink>
+                                    </Can>
+                                    <Can action={['settings.*', 'file.sftp']} matchAny>
+                                        <NavLink
+                                            className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
+                                            ref={NavigationSettings}
+                                            to={`/server/${id}/settings`}
+                                            end
+                                        >
+                                            <HugeIconsDashboardSettings fill='currentColor' />
+                                            <p>Settings</p>
+                                        </NavLink>
+                                    </Can>
+                                    <Can action={['activity.*', 'activity.read']} matchAny>
+                                        <NavLink
+                                            className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
+                                            ref={NavigationActivity}
+                                            to={`/server/${id}/activity`}
+                                            end
+                                        >
+                                            <HugeIconsPencil fill='currentColor' />
+                                            <p>Activity</p>
+                                        </NavLink>
+                                    </Can>
+                                    {/* TODO: finish modrinth support *\}
                     {/* <Can action={['modrinth.*', 'modrinth.download']} matchAny>
                         <NavLink
                             className='flex flex-row items-center sm:hidden md:show'
                             ref={NavigationMod}
                             to={`/server/${id}/mods`}
-                            onClick={toggleSidebar}
                             end
                         >
                             <ModrinthLogo />
                             <p>Mods/Plugins</p>
                         </NavLink>
                     </Can> */}
-                                    </>
-                                )}
+                                </>
                                 <Can action={'startup.software'}>
                                     <NavLink
                                         className='flex flex-row items-center transition-colors duration-200 hover:bg-[#ffffff11] rounded-md'
                                         ref={NavigationShell}
                                         to={`/server/${id}/shell`}
-                                        onClick={toggleSidebar}
                                         end
                                     >
                                         <HugeIconsController fill='currentColor' />
@@ -581,12 +505,7 @@ const ServerRouter = () => {
                             </ul>
                         </MainSidebar>
 
-                        <MainWrapper
-                            className={`${isSidebarVisible ? 'max-w-[calc(100%-300px-8px)]' : 'w-full'}`}
-                            onTouchStart={handleTouchStart}
-                            onTouchMove={handleTouchMove}
-                            onTouchEnd={handleTouchEnd}
-                        >
+                        <MainWrapper className='w-full'>
                             <CommandMenu />
                             <InstallListener />
                             <TransferListener />

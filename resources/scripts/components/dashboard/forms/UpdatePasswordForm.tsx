@@ -3,9 +3,10 @@ import { Form, Formik, FormikHelpers } from 'formik';
 import { Fragment } from 'react';
 import * as Yup from 'yup';
 
+import ActionButton from '@/components/elements/ActionButton';
 import Field from '@/components/elements/Field';
+import Spinner from '@/components/elements/Spinner';
 import SpinnerOverlay from '@/components/elements/SpinnerOverlay';
-import { Button } from '@/components/elements/button/index';
 
 import updateAccountPassword from '@/api/account/updateAccountPassword';
 import { httpErrorToHuman } from '@/api/http';
@@ -93,7 +94,10 @@ const UpdatePasswordForm = () => {
                                 />
                             </div>
                             <div className={`mt-6`}>
-                                <Button disabled={isSubmitting || !isValid}>Update Password</Button>
+                                <ActionButton variant='primary' disabled={isSubmitting || !isValid}>
+                                    {isSubmitting && <Spinner size='small' />}
+                                    {isSubmitting ? 'Updating...' : 'Update Password'}
+                                </ActionButton>
                             </div>
                         </Form>
                     </Fragment>

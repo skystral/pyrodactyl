@@ -1,8 +1,8 @@
 import { Actions, useStoreActions } from 'easy-peasy';
 import { useEffect, useState } from 'react';
 
+import ActionButton from '@/components/elements/ActionButton';
 import TitledGreyBox from '@/components/elements/TitledGreyBox';
-import { Button } from '@/components/elements/button/index';
 import { Dialog } from '@/components/elements/dialog';
 
 import { httpErrorToHuman } from '@/api/http';
@@ -14,9 +14,11 @@ import { ServerContext } from '@/state/server';
 const ReinstallServerBox = () => {
     const uuid = ServerContext.useStoreState((state) => state.server.data!.uuid);
     const [modalVisible, setModalVisible] = useState(false);
+    const [loading, setLoading] = useState(false);
     const { addFlash, clearFlashes } = useStoreActions((actions: Actions<ApplicationStore>) => actions.flashes);
 
     const reinstall = () => {
+        setLoading(true);
         clearFlashes('settings');
         reinstallServer(uuid)
             .then(() => {
@@ -31,7 +33,10 @@ const ReinstallServerBox = () => {
 
                 addFlash({ key: 'settings', type: 'error', message: httpErrorToHuman(error) });
             })
-            .then(() => setModalVisible(false));
+            .then(() => {
+                setLoading(false);
+                setModalVisible(false);
+            });
     };
 
     useEffect(() => {
@@ -46,6 +51,7 @@ const ReinstallServerBox = () => {
                 confirm={'Yes, reinstall server'}
                 onClose={() => setModalVisible(false)}
                 onConfirmed={reinstall}
+                loading={loading}
             >
                 Your server will be stopped and some files may be deleted or modified during this process, are you sure
                 you wish to continue?
@@ -59,9 +65,9 @@ const ReinstallServerBox = () => {
                 </strong>
             </p>
             <div className={`mt-6 text-right`}>
-                <Button.Danger variant={Button.Variants.Secondary} onClick={() => setModalVisible(true)}>
+                <ActionButton variant='danger' onClick={() => setModalVisible(true)}>
                     Reinstall Server
-                </Button.Danger>
+                </ActionButton>
             </div>
         </TitledGreyBox>
     );

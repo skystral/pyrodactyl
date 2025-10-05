@@ -34,6 +34,7 @@ use Pterodactyl\Exceptions\Http\Server\ServerStateConflictException;
  * @property int $cpu
  * @property string|null $threads
  * @property bool $oom_disabled
+ * @property bool $exclude_from_resource_calculation
  * @property int $allocation_id
  * @property int $nest_id
  * @property int $egg_id
@@ -41,7 +42,8 @@ use Pterodactyl\Exceptions\Http\Server\ServerStateConflictException;
  * @property string $image
  * @property int|null $allocation_limit
  * @property int|null $database_limit
- * @property int $backup_limit
+ * @property int|null $backup_limit
+ * @property int|null $backup_storage_limit
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property \Illuminate\Support\Carbon|null $installed_at
@@ -136,6 +138,7 @@ class Server extends Model
     protected $attributes = [
         'status' => self::STATUS_INSTALLING,
         'oom_disabled' => true,
+        'exclude_from_resource_calculation' => false,
         'installed_at' => null,
     ];
 
@@ -163,6 +166,7 @@ class Server extends Model
         'cpu' => 'required|numeric|min:0',
         'threads' => 'nullable|regex:/^[0-9-,]+$/',
         'oom_disabled' => 'sometimes|boolean',
+        'exclude_from_resource_calculation' => 'sometimes|boolean',
         'disk' => 'required|numeric|min:0',
         'allocation_id' => 'required|bail|unique:servers|exists:allocations,id',
         'nest_id' => 'required|exists:nests,id',
@@ -170,9 +174,10 @@ class Server extends Model
         'startup' => 'required|string',
         'skip_scripts' => 'sometimes|boolean',
         'image' => ['required', 'string', 'max:191', 'regex:/^~?[\w\.\/\-:@ ]*$/'],
-        'database_limit' => 'present|nullable|integer|min:0',
-        'allocation_limit' => 'sometimes|nullable|integer|min:0',
-        'backup_limit' => 'present|nullable|integer|min:0',
+        'database_limit' => 'nullable|integer|min:0',
+        'allocation_limit' => 'nullable|integer|min:0',
+        'backup_limit' => 'nullable|integer|min:0',
+        'backup_storage_limit' => 'nullable|integer|min:0',
     ];
 
     /**
@@ -189,12 +194,14 @@ class Server extends Model
         'io' => 'integer',
         'cpu' => 'integer',
         'oom_disabled' => 'boolean',
+        'exclude_from_resource_calculation' => 'boolean',
         'allocation_id' => 'integer',
         'nest_id' => 'integer',
         'egg_id' => 'integer',
         'database_limit' => 'integer',
         'allocation_limit' => 'integer',
         'backup_limit' => 'integer',
+        'backup_storage_limit' => 'integer',
         self::CREATED_AT => 'datetime',
         self::UPDATED_AT => 'datetime',
         'deleted_at' => 'datetime',
@@ -219,6 +226,40 @@ class Server extends Model
     public function isSuspended(): bool
     {
         return $this->status === self::STATUS_SUSPENDED;
+    }
+
+    /**
+     * Checks if the server has a custom docker image set by an administrator.
+     * A custom image is one that is not in the egg's allowed docker images.
+     */
+    public function hasCustomDockerImage(): bool
+    {
+        // Ensure we have egg data and docker images
+        if (!$this->egg || !is_array($this->egg->docker_images) || empty($this->egg->docker_images)) {
+            return false;
+        }
+        
+        return !in_array($this->image, array_values($this->egg->docker_images));
+    }
+
+    /**
+     * Gets the default docker image from the egg specification.
+     */
+    public function getDefaultDockerImage(): string
+    {
+        // Ensure we have egg data and docker images
+        if (!$this->egg || !is_array($this->egg->docker_images) || empty($this->egg->docker_images)) {
+            throw new \RuntimeException('Server egg has no docker images configured.');
+        }
+        
+        $eggDockerImages = $this->egg->docker_images;
+        $defaultImage = reset($eggDockerImages);
+        
+        if (empty($defaultImage)) {
+            throw new \RuntimeException('Server egg has no valid default docker image.');
+        }
+        
+        return $defaultImage;
     }
 
     /**
@@ -335,6 +376,56 @@ class Server extends Model
     }
 
     /**
+     * Check if this server has a backup storage limit configured.
+     */
+    public function hasBackupStorageLimit(): bool
+    {
+        return !is_null($this->backup_storage_limit) && $this->backup_storage_limit > 0;
+    }
+
+    /**
+     * Get the backup storage limit in bytes.
+     */
+    public function getBackupStorageLimitBytes(): ?int
+    {
+        if (!$this->hasBackupStorageLimit()) {
+            return null;
+        }
+
+        return (int) ($this->backup_storage_limit * 1024 * 1024);
+    }
+
+    public function hasBackupCountLimit(): bool
+    {
+        return !is_null($this->backup_limit) && $this->backup_limit > 0;
+    }
+
+    public function allowsBackups(): bool
+    {
+        return is_null($this->backup_limit) || $this->backup_limit > 0;
+    }
+
+    public function hasDatabaseLimit(): bool
+    {
+        return !is_null($this->database_limit) && $this->database_limit > 0;
+    }
+
+    public function allowsDatabases(): bool
+    {
+        return is_null($this->database_limit) || $this->database_limit > 0;
+    }
+
+    public function hasAllocationLimit(): bool
+    {
+        return !is_null($this->allocation_limit) && $this->allocation_limit > 0;
+    }
+
+    public function allowsAllocations(): bool
+    {
+        return is_null($this->allocation_limit) || $this->allocation_limit > 0;
+    }
+
+    /**
      * Returns all mounts that have this server has mounted.
      */
     public function mounts(): HasManyThrough
@@ -348,6 +439,82 @@ class Server extends Model
     public function activity(): MorphToMany
     {
         return $this->morphToMany(ActivityLog::class, 'subject', 'activity_log_subjects');
+    }
+
+    /**
+     * Gets all subdomains associated with this server.
+     */
+    public function subdomains(): HasMany
+    {
+        return $this->hasMany(ServerSubdomain::class);
+    }
+
+    /**
+     * Gets the active subdomain for this server.
+     */
+    public function activeSubdomain(): HasOne
+    {
+        return $this->hasOne(ServerSubdomain::class)->where('is_active', true);
+    }
+
+    /**
+     * Check if this server supports subdomains based on its egg features.
+     */
+    public function supportsSubdomains(): bool
+    {
+        if (!$this->egg) {
+            return false;
+        }
+
+        // Check direct features
+        if (is_array($this->egg->features)) {
+            foreach ($this->egg->features as $feature) {
+                if (str_starts_with($feature, 'subdomain_')) {
+                    return true;
+                }
+            }
+        }
+
+        // Check inherited features
+        if (is_array($this->egg->inherit_features)) {
+            foreach ($this->egg->inherit_features as $feature) {
+                if (str_starts_with($feature, 'subdomain_')) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Get the subdomain feature type for this server.
+     */
+    public function getSubdomainFeature(): ?string
+    {
+        if (!$this->egg) {
+            return null;
+        }
+
+        // Check direct features
+        if (is_array($this->egg->features)) {
+            foreach ($this->egg->features as $feature) {
+                if (str_starts_with($feature, 'subdomain_')) {
+                    return $feature;
+                }
+            }
+        }
+
+        // Check inherited features
+        if (is_array($this->egg->inherit_features)) {
+            foreach ($this->egg->inherit_features as $feature) {
+                if (str_starts_with($feature, 'subdomain_')) {
+                    return $feature;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
